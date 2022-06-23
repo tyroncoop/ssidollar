@@ -1,0 +1,8 @@
+{
+    "c": ["pages/index", "webpack"],
+    "r": [],
+    "m": [
+        "./src/assets/icons/add_icon.svg",
+        "./src/assets/icons/minus_icon.svg"
+    ]
+}

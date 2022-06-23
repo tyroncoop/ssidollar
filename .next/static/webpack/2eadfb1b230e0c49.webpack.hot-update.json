@@ -1,0 +1,5 @@
+{
+    "c": ["pages/index", "webpack"],
+    "r": [],
+    "m": ["./src/assets/icons/user_loggedin.svg"]
+}
