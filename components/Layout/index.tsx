@@ -1,6 +1,6 @@
 import Head from 'next/head'
 import Image from 'next/image'
-import { Dashboard, DashboardModal } from '..'
+import { Dashboard, DashboardModal, Footer } from '..'
 import $siLogo from '../../src/assets/logos/$SI.png'
 import styles from './styles.module.scss'
 
@@ -23,6 +23,7 @@ function LayoutSearch() {
                 </div>
                 <Dashboard />
                 <DashboardModal />
+                <Footer />
             </div>
         </div>
     )
