@@ -1,5 +1,6 @@
 import Head from 'next/head'
 import Image from 'next/image'
+import { ToastContainer } from 'react-toastify'
 import { Dashboard, DashboardModal, Footer } from '..'
 import $siLogo from '../../src/assets/logos/$SI.png'
 import styles from './styles.module.scss'
@@ -18,6 +19,10 @@ function LayoutSearch() {
             </Head>
             <div id="bg" />
             <div id="wrapper">
+                <ToastContainer
+                    closeButton={false}
+                    progressStyle={{ backgroundColor: '#eeeeee' }}
+                />
                 <div className={styles.logoWrapper}>
                     <Image src={$siLogo} alt="$si-logo" />
                 </div>
