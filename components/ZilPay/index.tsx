@@ -164,7 +164,11 @@ export const ZilPay: React.FC = () => {
                     if (loginInfo.address) {
                         updateDashboardState('loggedIn')
                     } else {
-                        updateDashboardState('connected')
+                        if (network === 'testnet') {
+                            updateDashboardState('connected')
+                        } else {
+                            throw Error('Please change network to testnet')
+                        }
                     }
                 }
             }
