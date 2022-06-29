@@ -1,0 +1,562 @@
+(* v0.12.0
+ssiDollarImpl.tyron: Self-Sovereign Identity Dollar DApp, Fungible Decentralized Stablecoin <> Implementation smart contract
+Self-Sovereign Identity Protocol
+Copyright (C) Tyron Mapu Community Interest Company and its affiliates.
+tyron.network
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.*)
+
+scilla_version 0
+
+import IntUtils PairUtils
+
+library SsiDollar
+  let one_msg =
+    fun( msg: Message ) =>
+    let nil_msg = Nil{ Message } in Cons{ Message } msg nil_msg
+
+  let two_msgs =
+    fun( msg1: Message ) => fun( msg2: Message ) =>
+    let msgs_tmp = one_msg msg2 in Cons{ Message } msg1 msgs_tmp
+
+  let three_msgs =
+    fun( msg1: Message ) => fun( msg2: Message ) => fun( msg3: Message ) =>
+    let msgs_tmp = two_msgs msg2 msg3 in Cons{ Message } msg1 msgs_tmp
+
+  let four_msgs =
+    fun( msg1: Message ) => fun( msg2: Message ) => fun( msg3: Message ) => fun( msg4: Message ) =>
+    let msgs_tmp = three_msgs msg2 msg3 msg4 in Cons{ Message } msg1 msgs_tmp
+
+  let zero = Uint128 0
+  let true = True
+  let false = False
+  let zeroByStr20 = 0x0000000000000000000000000000000000000000
+
+  let option_value =
+    tfun 'A => fun( default: 'A ) => fun( opt_val: Option 'A ) => match opt_val with
+    | Some v => v
+    | None => default end
+
+  let option_uint128_value = let f = @option_value Uint128 in f zero
+  let option_bystr20_value = let f = @option_value ByStr20 in f zeroByStr20
+  
+  let option2_uint128_value =
+    fun( input: Option( Option Uint128 )) => match input with
+    | Some (Some a) => a
+    | _ => zero end
+
+  let option_uint128 =
+    fun( input: Uint128 ) =>
+    let is_zero = builtin eq input zero in match is_zero with
+    | True => None{ Uint128 }
+    | False => Some{ Uint128 } input end
+
+  let better_subtract =
+    fun( a: Uint128 ) => fun( b: Uint128 ) =>
+    let a_ge_b = uint128_ge a b in match a_ge_b with
+    | True => builtin sub a b
+    | False => zero end
+  
+  let grow: Uint128 -> Uint256 =
+    fun( var : Uint128 ) =>
+    let maybe_big = builtin to_uint256 var in match maybe_big with
+    | Some big => big
+    | None => Uint256 0 (* should never happen *)
+    end
+    
+  type Direction =
+    | IntoSsi
+    | FromSsi
+  
+  let intoSsi = IntoSsi
+  let fromSsi = FromSsi
+  
+  let compute: Direction -> Uint128 -> Uint128 -> Uint128 -> Option Uint128 =
+    fun( d: Direction ) => fun( a: Uint128 ) => fun( r: Uint128 ) => fun( f: Uint128) =>
+    let big_a = grow a in let big_r = grow r in let big_f = grow f in
+    let result = match d with
+    | IntoSsi =>
+      let a_times_r = builtin mul big_a big_r in
+      builtin div a_times_r big_f
+    | FromSsi =>
+      let a_div_r = builtin div big_a big_r in
+      builtin mul a_div_r big_f end in
+    builtin to_uint128 result
+  
+  let zil = "zil"
+  let zusdt = "zusdt"
+  let xsgd = "xsgd"
+
+contract SsiDollar(
+  init_username: String,
+  proxy: ByStr20 with contract 
+    field balances: Map ByStr20 Uint128,
+    field total_supply: Uint128,
+    field allowances: Map ByStr20 ( Map ByStr20 Uint128 ) end,
+  init: ByStr20 with contract field dApp: ByStr20 with contract
+    field dns: Map String ByStr20,
+    field did_dns: Map String ByStr20 with contract
+      field controller: ByStr20,
+      field services: Map String ByStr20 end end end,
+  init_factor: Uint128, (*1e6*)
+  init_zildex: ByStr20 with contract
+    field pools: Map ByStr20 (Pair Uint128 Uint128) end
+  )
+  field nft_username: String = init_username
+  field pending_username: String = ""
+  field xinit: ByStr20 with contract field dApp: ByStr20 with contract
+    field dns: Map String ByStr20,
+    field did_dns: Map String ByStr20 with contract
+      field controller: ByStr20,
+      field services: Map String ByStr20 end end end = init
+
+  field pauser: String = init_username
+  field paused: Bool = False
+  
+  field lister: String = init_username
+  field blocked: Map ByStr20 Bool = Emp ByStr20 Bool
+  
+  field services: Map String ByStr20 = Emp String ByStr20
+  field zilSsiRate: Uint128 = zero
+  field factor: Uint128 = init_factor
+  field zil_dex: ByStr20 with contract
+    field pools: Map ByStr20 (Pair Uint128 Uint128) end = init_zildex (* token address -> Pair{zil_reserve, token_reserve} *)
+  field accounts: Map ByStr20 (Pair Uint128 Uint128) = Emp ByStr20 (Pair Uint128 Uint128) (* Pair{ZIL, $SI loan} per user *)
+  field version: String = "$SIimpl-0.12.0" (* @todo *)
+
+procedure SupportTyron( tyron: Option Uint128 )
+  match tyron with
+  | None => | Some donation =>
+    current_init <-& init.dApp; donateDApp = "donate";
+    get_addr <-& current_init.dns[donateDApp]; addr = option_bystr20_value get_addr;
+    accept; msg = let m = { _tag: "AddFunds"; _recipient: addr; _amount: donation } in one_msg m; send msg end end
+
+procedure ThrowIfNotProxy()
+  verified = builtin eq proxy _sender; match verified with
+    | True => | False => e = { _exception: "$SIimpl-NotProxy" }; throw e end end
+
+procedure VerifyController( tyron: Option Uint128 )
+  current_username <- nft_username; current_init <-& init.dApp;
+  get_did <-& current_init.did_dns[current_username]; match get_did with
+    | None => e = { _exception: "$SIimpl-DidIsNull" }; throw e
+    | Some did_ =>
+      current_controller <-& did_.controller;
+      verified = builtin eq _origin current_controller; match verified with
+        | True => | False => e = { _exception: "$SIimpl-WrongCaller" }; throw e end;
+      SupportTyron tyron end end
+
+procedure IsPauser()
+  current_pauser <- pauser; current_init <-& init.dApp;
+  get_did <-& current_init.did_dns[current_pauser]; match get_did with
+    | None => e = { _exception: "$SIimpl-DidIsNull" }; throw e
+    | Some did_ =>
+      current_controller <-& did_.controller;
+      verified = builtin eq _origin current_controller; match verified with
+        | True => | False => e = { _exception: "$SIimpl-WrongCaller" }; throw e end end end
+
+procedure IsPaused()
+  is_paused <- paused; match is_paused with
+    | True => | False => e = { _exception: "$SIimpl-NotPaused" }; throw e end end
+
+procedure IsNotPaused()
+  is_paused <- paused; match is_paused with
+    | False => | True => e = { _exception: "$SIimpl-Paused" }; throw e end end
+
+procedure IsLister()
+  current_lister <- lister; current_init <-& init.dApp;
+  get_did <-& current_init.did_dns[current_lister]; match get_did with
+    | None => e = { _exception: "$SIimpl-DidIsNull" }; throw e
+    | Some did_ =>
+      current_controller <-& did_.controller;
+      verified = builtin eq _origin current_controller; match verified with
+        | True => | False => e = { _exception: "$SIimpl-WrongCaller" }; throw e end end end
+
+procedure AmountIsNotNull( amount: Uint128 )
+  is_null = builtin eq zero amount; match is_null with
+    | False => | True => e = { _exception: "$SIimpl-AmountIsNull" }; throw e end end
+
+procedure AddrIsNotNull( addr: ByStr20 )
+  is_null = builtin eq zeroByStr20 addr; match is_null with
+    | False => | True => e = { _exception: "$SIimpl-AddressIsNull" }; throw e end end
+
+procedure IsBlocked( addr: ByStr20 )
+  is_blocked <- exists blocked[addr]; match is_blocked with
+    | True => | False => e = { _exception: "$SIimpl-AddressIsNotBlocked" }; throw e end end
+
+procedure IsNotBlocked( addr: ByStr20 )
+  AddrIsNotNull addr;
+  is_blocked <- exists blocked[addr]; match is_blocked with
+    | False => | True => e = { _exception: "$SIimpl-AddressIsBlocked" }; throw e end end
+
+procedure ThrowIfSameAddr(
+  a: ByStr20,
+  b: ByStr20
+  )
+  is_self = builtin eq a b; match is_self with
+    | False => | True => e = { _exception: "$SIimpl-SameAddress" }; throw e end end
+
+procedure IsSufficient(
+  value: Uint128,
+  amount: Uint128
+  )
+  is_sufficient = uint128_ge value amount; match is_sufficient with
+    | True => | False => e = { _exception: "$SIimpl-BalanceIsInsufficient" }; throw e end end
+
+procedure ThrowIfSameName(
+  a: String,
+  b: String
+  )
+  is_same = builtin eq a b; match is_same with
+    | False => | True => e = { _exception: "$SIimpl-SameUsername" }; throw e end end
+
+transition UpdateUsername(
+  username: String,
+  tyron: Option Uint128
+  )
+  IsNotPaused; VerifyController tyron;
+  current_username <- nft_username; ThrowIfSameName current_username username;
+  current_init <-& init.dApp; get_did <-& current_init.did_dns[username]; match get_did with
+    | None => e = { _exception: "$SIimpl-DidIsNull" }; throw e
+    | Some did_ => pending_username := username end end
+
+transition AcceptPendingUsername()
+  IsNotPaused;
+  current_pending <- pending_username; current_init <-& init.dApp;
+  get_did <-& current_init.did_dns[current_pending]; match get_did with
+    | None => e = { _exception: "$SIimpl-DidIsNull" }; throw e
+    | Some did_ =>
+      current_controller <-& did_.controller;
+      verified = builtin eq _origin current_controller; match verified with
+        | True => | False => e = { _exception: "$SIimpl-WrongCaller" }; throw e end;
+      nft_username := current_pending end end
+
+transition UpdateFactor(
+  val: Uint128,
+  tyron: Option Uint128
+  )
+  IsNotPaused; VerifyController tyron; AmountIsNotNull val;
+  factor := val;
+  e = { _eventname: "FactorUpdated";
+    newFactor: val }; event e end
+
+transition UpdatePauser(
+  username: String,
+  tyron: Option Uint128
+  )
+  IsNotPaused; VerifyController tyron;
+  current_pauser <- pauser; ThrowIfSameName current_pauser username;
+  pauser := username;
+  e = { _eventname: "PauserUpdated";
+    newPauser: username }; event e end
+
+transition Pause()
+  ThrowIfNotProxy; IsPauser;
+  IsNotPaused; paused := true;
+  e = { _eventname: "SmartContractPaused";
+    pauser: _origin }; event e end
+
+transition Unpause()
+  ThrowIfNotProxy; IsPauser;
+  IsPaused; paused := false;
+  e = { _eventname: "SmartContractUnpaused";
+    pauser: _origin }; event e end
+
+transition UpdateLister(
+  username: String,
+  tyron: Option Uint128
+  )
+  IsNotPaused; VerifyController tyron;
+  current_lister <- lister; ThrowIfSameName current_lister username;
+  lister:= username;
+  e = { _eventname: "ListerUpdated";
+    newLister: username }; event e end
+
+transition Block( addr: ByStr20 )
+  IsNotPaused; IsLister;
+  IsNotBlocked addr; blocked[addr] := true;
+  e = { _eventname: "AddressBlocked";
+    address: addr;
+    lister: _origin }; event e end
+
+transition Unblock( addr: ByStr20 )
+  IsNotPaused; IsLister;
+  IsBlocked addr; delete blocked[addr];
+  e = { _eventname: "AddressUnblocked";
+    address: addr;
+    lister: _origin }; event e end
+
+procedure IsValidToSelf( addr: ByStr20 )
+  verified = builtin eq addr _this_address; match verified with
+    | True => | False => e = { _exception: "$SIimpl-WrongCaller" }; throw e end end
+
+procedure FetchServiceAddr( id: String )
+  current_init <-& init.dApp; initDApp = "init";
+  get_did <-& current_init.did_dns[initDApp]; match get_did with
+    | None => e = { _exception : "$SIimpl-DidIsNull" }; throw e
+    | Some did_ =>
+      get_service <-& did_.services[id]; addr = option_bystr20_value get_service;
+      services[id] := addr end end
+
+transition UpdateZilDex(
+  addr: ByStr20 with contract
+    field pools: Map ByStr20 (Pair Uint128 Uint128) end,
+  tyron: Option Uint128
+  )
+  IsNotPaused; VerifyController tyron;
+  current_zildex <- zil_dex; ThrowIfSameAddr current_zildex addr;
+  zil_dex:= addr;
+  e = { _eventname: "ZilDexUpdated";
+    newZilDex: addr }; event e end
+
+procedure fetchSsiZilRate()
+  current_zildex <- zil_dex;
+  FetchServiceAddr zusdt; get_addr <- services[zusdt]; addr = option_bystr20_value get_addr;
+  current_pool <-& current_zildex.pools[addr]; match current_pool with
+    | Some pool =>
+      zil_reserve = let fst_element = @fst Uint128 Uint128 in fst_element pool;
+      usd_reserve = let snd_element = @snd Uint128 Uint128 in snd_element pool;
+        (* @todo this is for mainnet
+        let zusdt_r = snd_element pool in
+        let multiplier = Uint128 1000000 in builtin mul zusdt_r multiplier; *)
+      current_factor <- factor;
+      rate = let usdr_times_f = let num = builtin mul usd_reserve current_factor in grow num in
+        let zil_r = grow zil_reserve in let zil_in = grow _amount in
+        let divisor = builtin add zil_r zil_in in let result = builtin div usdr_times_f divisor in
+        let get_result = builtin to_uint128 result in option_uint128_value get_result;
+      zilSsiRate := rate
+    | None => e = { _exception : "$SIimpl-UnsupportedPool" }; throw e end end
+
+procedure LockZIL( originator: ByStr20 )
+  accept; fetchSsiZilRate; current_rate <- zilSsiRate; current_factor <- factor;
+  get_dollars = compute intoSsi _amount current_rate current_factor;
+  ssi_dollars = let result = option_uint128_value get_dollars in let two = Uint128 2 in builtin div result two;
+  get_account <- accounts[originator]; match get_account with
+    | Some account =>
+      zil_bal = let bal = let fst_element = @fst Uint128 Uint128 in fst_element account in builtin add bal _amount;
+      ssi_bal = let bal = let snd_element = @snd Uint128 Uint128 in snd_element account in builtin add bal ssi_dollars;
+      new_account = Pair{ Uint128 Uint128 } zil_bal ssi_bal;
+      accounts[originator] := new_account
+    | None =>
+      account = Pair{ Uint128 Uint128 } _amount ssi_dollars;
+      accounts[originator] := account end end
+
+transition AddFunds()
+  IsNotPaused;
+  get_account <- accounts[_sender]; match get_account with
+    | Some account =>
+      accept;
+      zil_bal = let bal = let fst_element = @fst Uint128 Uint128 in fst_element account in builtin add bal _amount;
+      ssi_bal = let snd_element = @snd Uint128 Uint128 in snd_element account;
+      new_account = Pair{ Uint128 Uint128 } zil_bal ssi_bal;
+      accounts[_sender] := new_account
+    | None => e = { _exception : "$SIimpl-AccountNotRegistered" }; throw e end end
+
+transition Mint(
+  addrName: String,
+  originator: ByStr20,
+  amount: Uint128
+  )
+  IsNotPaused; ThrowIfNotProxy; IsNotBlocked originator; AmountIsNotNull amount;
+  is_zil = builtin eq addrName zil; match is_zil with
+    | True => LockZIL originator
+    | False =>
+      is_zusdt = builtin eq addrName zusdt; match is_zusdt with
+        | True =>
+          FetchServiceAddr addrName; get_addr <- services[addrName]; addr = option_bystr20_value get_addr;
+          msg_token = let m = { _tag: "TransferFrom"; _recipient: addr; _amount: zero;
+            from: originator;
+            to: _this_address;
+            amount: amount } in one_msg m; send msg_token;
+          ssi_dollars = amount;
+            (* @todo this is for mainnet
+            let multiplier = Uint128 1000000 in builtin mul amount multiplier;*)
+          get_bal <-& proxy.balances[originator]; bal = option_uint128_value get_bal; new_bal = builtin add bal ssi_dollars;
+          current_supply <-& proxy.total_supply; new_supply = builtin add current_supply ssi_dollars;
+          msg_proxy = let m = { _tag: "ComputeCallBack"; _recipient: proxy; _amount: zero;
+              originator: originator;
+              new_balance: new_bal;
+              new_supply: new_supply } in one_msg m; send msg_proxy
+        | False => e = { _exception : "$SIimpl-UnsupportedToken" }; throw e
+      end end end
+
+transition RecipientAcceptTransferFrom( initiator: ByStr20, sender: ByStr20, recipient: ByStr20, amount: Uint128 ) IsNotPaused end
+
+procedure ReleaseZIL(
+  originator: ByStr20,
+  amount: Uint128
+  )
+  get_account <- accounts[originator]; match get_account with
+    | Some account =>
+      zil_bal = let fst_element = @fst Uint128 Uint128 in fst_element account;
+      ssi_bal = let snd_element = @snd Uint128 Uint128 in snd_element account;
+      IsSufficient amount ssi_bal;
+      delete accounts[originator];
+      msg = let m = { _tag: "AddFunds"; _recipient: originator; _amount: zil_bal } in one_msg m; send msg;
+      is_refund = let amount_ = builtin sub amount ssi_bal in uint128_gt amount_ zero; match is_refund with
+        | True =>
+          get_bal <-& proxy.balances[originator]; bal = option_uint128_value get_bal; new_bal = builtin sub bal ssi_bal;
+          current_supply <-& proxy.total_supply; new_supply = builtin sub current_supply ssi_bal;
+          msg_proxy = let m = { _tag: "ComputeCallBack"; _recipient: proxy; _amount: zero;
+            originator: originator;
+            new_balance: new_bal;
+            new_supply: new_supply
+          } in one_msg m; send msg_proxy
+        | False => end
+    | None => e = { _exception : "$SIimpl-AccountNotRegistered" }; throw e end end
+
+transition Burn(
+  addrName: String,
+  originator: ByStr20,
+  amount: Uint128
+  )
+  IsNotPaused; ThrowIfNotProxy; IsNotBlocked originator; AmountIsNotNull amount;
+  get_bal <-& proxy.balances[originator]; bal = option_uint128_value get_bal; IsSufficient bal amount; new_bal = builtin sub bal amount;
+  current_supply <-& proxy.total_supply; new_supply = builtin sub current_supply amount;
+  msg_to_proxy = { _tag: "ComputeCallBack"; _recipient: proxy; _amount: zero;
+    originator: originator;
+    new_balance: new_bal;
+    new_supply: new_supply
+  };
+  msg_to_burner = { _tag: "BurnSuccessCallBack"; _recipient: originator; _amount: zero;
+    burner: originator;
+    amount: amount
+  };
+  msgs = two_msgs msg_to_proxy msg_to_burner; send msgs;
+  is_zil = builtin eq addrName zil; match is_zil with
+    | True => ReleaseZIL originator amount
+    | False =>
+      is_zusdt = builtin eq addrName zusdt; match is_zusdt with
+        | True =>
+            FetchServiceAddr addrName; get_addr <- services[addrName]; addr = option_bystr20_value get_addr;
+            zusdt_dollars = amount;
+            (* @todo this is for mainnet
+            let divisor = Uint128 1000000 in builtin div amount divisor;*)
+            msg_token = let m = { _tag: "Transfer"; _recipient: addr; _amount: zero;
+              to: originator;
+              amount: zusdt_dollars } in one_msg m; send msg_token
+        | False => e = { _exception : "$SIimpl-UnsupportedToken" }; throw e end end;
+  e = { _eventname: "$SIburnt";
+    burner: originator;
+    amount: amount
+  }; event e end
+
+transition Transfer(
+  originator: ByStr20,
+  beneficiary: ByStr20,
+  amount: Uint128
+  )
+  IsNotPaused; ThrowIfNotProxy; AmountIsNotNull amount;
+  IsNotBlocked originator; IsNotBlocked beneficiary; ThrowIfSameAddr originator beneficiary;
+  get_originator_bal <-& proxy.balances[originator]; originator_bal = option_uint128_value get_originator_bal;
+  IsSufficient originator_bal amount; new_originator_bal = builtin sub originator_bal amount;
+  get_beneficiary_bal <-& proxy.balances[beneficiary]; beneficiary_bal = option_uint128_value get_beneficiary_bal;
+  new_beneficiary_bal = builtin add beneficiary_bal amount;
+  e = { _eventname: "TransferSuccess";
+    originator: originator;
+    beneficiary: beneficiary;
+    amount: amount }; event e;
+  msg_to_proxy = { _tag: "TransferCallBack"; _recipient: _sender; _amount: zero;
+    originator: originator;
+    beneficiary: beneficiary;
+    originatorBal: new_originator_bal;
+    beneficiaryBal: new_beneficiary_bal
+  };
+  msg_to_originator = { _tag: "TransferSuccessCallBack"; _recipient: originator; _amount: zero;
+    sender: originator;
+    recipient: beneficiary;
+    amount: amount
+  };
+  msg_to_beneficiary = { _tag: "RecipientAcceptTransfer"; _recipient: beneficiary; _amount: zero;
+    sender: originator;
+    recipient: beneficiary;
+    amount: amount
+  }; msgs = three_msgs msg_to_proxy msg_to_originator msg_to_beneficiary; send msgs end
+
+transition IncreaseAllowance(
+  originator: ByStr20,
+  spender: ByStr20,
+  amount: Uint128
+  )
+  IsNotPaused; ThrowIfNotProxy; AmountIsNotNull amount;
+  IsNotBlocked originator; IsNotBlocked spender; ThrowIfSameAddr originator spender;
+  get_allowance <-& proxy.allowances[originator][spender]; allowance = option_uint128_value get_allowance;
+  new_allowance = builtin add allowance amount;
+  e = { _eventname: "IncreasedAllowance";
+    originator: originator;
+    spender: spender;
+    new_allowance : new_allowance }; event e;
+  msg = let m = { _tag: "AllowanceCallBack"; _recipient: _sender; _amount: zero;
+    originator: originator;
+    spender: spender;
+    newAllowance: new_allowance
+  } in one_msg m; send msg end
+
+transition DecreaseAllowance(
+  originator: ByStr20,
+  spender: ByStr20,
+  amount: Uint128
+  )
+  IsNotPaused; ThrowIfNotProxy; AmountIsNotNull amount;
+  IsNotBlocked originator; IsNotBlocked spender; ThrowIfSameAddr originator spender;
+  get_allowance <-& proxy.allowances[originator][spender]; allowance = option_uint128_value get_allowance;
+  new_allowance = better_subtract allowance amount;
+  e = { _eventname: "DecreasedAllowance";
+    originator: originator;
+    spender: spender;
+    new_allowance: new_allowance }; event e;
+  msg = let m = { _tag: "AllowanceCallBack"; _recipient: _sender; _amount: zero;
+    originator: originator;
+    spender: spender;
+    newAllowance: new_allowance
+  } in one_msg m; send msg end
+
+transition TransferFrom(
+  originator: ByStr20,
+  spender: ByStr20,
+  beneficiary: ByStr20, 
+  amount: Uint128
+  )
+  IsNotPaused; ThrowIfNotProxy; AmountIsNotNull amount;
+  IsNotBlocked originator; IsNotBlocked spender; IsNotBlocked beneficiary; ThrowIfSameAddr originator beneficiary;
+  get_originator_bal <-& proxy.balances[originator]; originator_bal = option_uint128_value get_originator_bal;
+  IsSufficient originator_bal amount;
+  get_allowance <-& proxy.allowances[originator][spender]; allowance = option_uint128_value get_allowance;
+  IsSufficient allowance amount;
+  get_beneficiary_bal <-& proxy.balances[beneficiary]; beneficiary_bal = option_uint128_value get_beneficiary_bal;
+  new_originator_bal = builtin sub originator_bal amount; new_allowance = builtin sub allowance amount; new_beneficiary_bal = builtin add beneficiary_bal amount;
+  e = { _eventname: "TransferFromSuccess";
+    originator: originator;
+    spender: spender;
+    beneficiary: beneficiary;
+    amount: amount }; event e;
+  msg_to_proxy_balances = { _tag: "TransferCallBack"; _recipient: _sender; _amount: zero;
+    originator: originator;
+    beneficiary: beneficiary;
+    originatorBal: new_originator_bal;
+    beneficiaryBal: new_beneficiary_bal
+  };
+  msg_to_proxy_allowance = { _tag: "AllowanceCallBack"; _recipient: _sender; _amount: zero;
+    originator: originator;
+    spender: spender;
+    newAllowance: new_allowance
+  };
+  msg_to_spender = { _tag: "TransferFromSuccessCallBack"; _recipient: spender; _amount: zero;
+    initiator: spender;
+    sender: originator;
+    recipient: beneficiary;
+    amount: amount
+  };
+  msg_to_beneficiary = { _tag: "RecipientAcceptTransferFrom"; _recipient: beneficiary; _amount: zero;
+    initiator: spender;
+    sender: originator;
+    recipient: beneficiary;
+    amount: amount
+  }; msgs = four_msgs msg_to_proxy_balances msg_to_proxy_allowance msg_to_spender msg_to_beneficiary; send msgs end
