@@ -11,7 +11,7 @@ function Home() {
 
     const handleOnChangeAmount = (event: { target: { value: any } }) => {
         if (isNaN(event.target.value)) {
-            toast.error('the input is not a number', {
+            toast.error('Please input a valid number', {
                 position: 'top-right',
                 autoClose: 2000,
                 hideProgressBar: false,
