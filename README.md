@@ -2,6 +2,12 @@
 
 Self-Sovereign Identity Dollar
 
+The SSI Dollar is a Decentralized Finance (DeFi) application made of two smart contracts:
+
+- [Proxy smart contract](./smartContracts/ssiDollar.tyron.scilla)
+
+- [Implementation smart contract](./smartContracts/ssiDollarImpl.tyron.scilla)
+
 ## MISSION VISION
 
 We are going through a period of humanitarian and economic crises, where many countries and communities are not getting their universal rights fulfilled. Access to housing, education, services, decent food, etc., has become more problematic. The factor most strongly affecting this situation is the loss of purchasing power in emerging markets, and inflation suffered by these countries often causes this decrease.
