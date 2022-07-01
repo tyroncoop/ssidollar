@@ -4,12 +4,24 @@ import { persistReducer } from 'redux-persist'
 import createWebStorage from 'redux-persist/lib/storage/createWebStorage'
 
 const initialState = {
+    txStatusLoading: 'idle',
+    txId: '',
     address: null,
     zilAddr: null,
 }
 
 function modalReducer(state = initialState, action: ModalAction) {
     switch (action.type) {
+        case ModalActionTypes.SetTxStatusLoading:
+            return {
+                ...state,
+                txStatusLoading: action.payload,
+            }
+        case ModalActionTypes.SetTxId:
+            return {
+                ...state,
+                txId: action.payload,
+            }
         case ModalActionTypes.updateLoginAddress:
             return {
                 ...state,
