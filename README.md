@@ -29,7 +29,7 @@ the blocking of zUSDT.
 
 ### Creation of SSI Dollars by over-collateralisation of ZIL
 
-Through the dApp of the SSI Dollar stablecoin, by depositing a certain amount of ZIL, it is possible to obtain a loan of 50% of the value in ZIL, maintaining control over both assets. The user keeps control over them and is free to decide when to withdraw them. This means that if the price of ZIL increases by the time you withdraw them, you will get a higher value asset. To do so, you must return the $SI you borrowed. To withdraw the total amount of your ZIL funds, you must return 100% of the $SI loan.
+Through the dApp of the SSI Dollar stablecoin, by depositing a certain amount of ZIL, it is possible to obtain a loan of 50% of the value in ZIL, maintaining control over both assets. The user keeps control over them and is free to decide when to withdraw them. This means that if the price of ZIL increases by the time you withdraw them, you will get a higher-valued asset. To do so, you must return the $SI you borrowed. To withdraw the total amount of your ZIL funds, you must return 100% of the $SI loan.
 
 When the loan request is submitted, the ZILUSD exchange rate is read remotely from the decentralized DragonDex exchange.
 

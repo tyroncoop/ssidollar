@@ -26,11 +26,11 @@ function Home() {
     const [section, setSection] = useState('')
     const [amount, setAmount] = useState('')
     const [address, setAdress] = useState('')
-    const $SIAddr = '0x53934bdad86b8ba4df24cc6c5fe3ff35a6bd5fee'
+    const $SIAddr = '0xc23cA8BE034b27B0d5d80CB08CE0EF10e336865d' // @todo
 
     const handleOnChangeCurrency = (event: { target: { value: any } }) => {
         const value = event.target.value
-        setCurrency(value.toUpperCase())
+        setCurrency(value)
         fetchBalance(value.toLowerCase())
     }
 
@@ -131,7 +131,7 @@ function Home() {
                     )
                     if (balance_zilpay !== undefined) {
                         const _currency = tyron.Currency.default.tyron(id)
-                        const finalBalance = balance_zilpay / _currency.decimals
+                        const finalBalance = balance_zilpay / 1e12 //_currency.decimals @todo only for testnet
                         setBalance(Number(finalBalance.toFixed(2)))
                     }
                 } catch (error) {
@@ -155,12 +155,129 @@ function Home() {
         setLoading(false)
     }
 
+    const handleSubmitMint = async () => {
+        setLoading(true)
+        const zilpay = new ZilPayBase()
+        const tx_params: any[] = [];
+        const addrName = {
+            vname: 'addrName',
+            type: 'String',
+            value: currency.toLowerCase(),
+        }
+        tx_params.push(addrName)
+        const amount_ = {
+            vname: 'amount',
+            type: 'Uint128',
+            value: String(Number(amount)*1e12)
+        }
+        tx_params.push(amount_)
+  
+        let tx = await tyron.Init.default.transaction(net)
+
+        dispatch(setTxStatusLoading('true'))
+        resetState()
+        updateModalTxMinimized(false)
+        updateModalTx(true)
+
+        switch (currency) {
+            case "zUSDT":
+                const tx_params_: any[] = [];
+                const spender = {
+                    vname: 'spender',
+                    type: 'ByStr20',
+                    value: "0xf930df14b7ce8c133c40f53f5db39cae4a27fac7", // @todo the $SI impl
+                }
+                tx_params_.push(spender)
+                tx_params_.push(amount_)    
+                await zilpay
+                .call({
+                    contractAddress: "0x53934bdad86b8ba4df24cc6c5fe3ff35a6bd5fee",  // zUSDT proxy
+                    transition: 'IncreaseAllowance',
+                    params: tx_params_ as unknown as Record<string, unknown>[],
+                    amount: '0',
+                })
+                .then(async () => {
+                    setTimeout(async () => {
+                    await zilpay.call({
+                        contractAddress: $SIAddr,
+                        transition: 'Mint',
+                        params: tx_params as unknown as Record<string, unknown>[],
+                        amount: '0',
+                    })
+                    .then(async (res) => {
+                        dispatch(setTxId(res.ID))
+                        dispatch(setTxStatusLoading('submitted'))
+                        tx = await tx.confirm(res.ID)
+                        if (tx.isConfirmed()) {
+                            setLoading(false)
+                            dispatch(setTxStatusLoading('confirmed'))
+                            setTimeout(() => {
+                                window.open(
+                                    `https://devex.zilliqa.com/tx/${
+                                        res.ID
+                                    }?network=https%3A%2F%2F${
+                                        net === 'mainnet' ? '' : 'dev-'
+                                    }api.zilliqa.com`
+                                )
+                            }, 1000)
+                        } else if (tx.isRejected()) {
+                            setLoading(false)
+                            dispatch(setTxStatusLoading('failed'))
+                        }
+                    })
+                    .catch((err) => {
+                        throw err
+                    })
+                }, 6000)
+                    
+                })
+                .catch((err) => {
+                    throw err
+                })
+                break;
+        
+            default:
+                await zilpay
+                .call({
+                    contractAddress: $SIAddr,
+                    transition: 'Mint',
+                    params: tx_params as unknown as Record<string, unknown>[],
+                    amount: amount,
+                })
+                .then(async (res) => {
+                    dispatch(setTxId(res.ID))
+                    dispatch(setTxStatusLoading('submitted'))
+                    tx = await tx.confirm(res.ID)
+                    if (tx.isConfirmed()) {
+                        setLoading(false)
+                        dispatch(setTxStatusLoading('confirmed'))
+                        setTimeout(() => {
+                            window.open(
+                                `https://devex.zilliqa.com/tx/${
+                                    res.ID
+                                }?network=https%3A%2F%2F${
+                                    net === 'mainnet' ? '' : 'dev-'
+                                }api.zilliqa.com`
+                            )
+                        }, 1000)
+                    } else if (tx.isRejected()) {
+                        setLoading(false)
+                        dispatch(setTxStatusLoading('failed'))
+                    }
+                })
+                .catch((err) => {
+                    throw err
+                })
+                break;
+        }
+    }
+
     const handleSubmit = async () => {
         setLoading(true)
         const zilpay = new ZilPayBase()
         const tx_params = await tyron.TyronZil.default.AddFunds(
             address,
-            String(amount)
+            String(Number(amount)*1e12)
         )
         let tx = await tyron.Init.default.transaction(net)
 
@@ -261,12 +378,12 @@ function Home() {
                                     <div className={styles.flipCardInner}>
                                         <div className={styles.flipCardFront}>
                                             <p className={styles.cardTitle3}>
-                                                CURRENCY
+                                                GET $SI
                                             </p>
                                         </div>
                                         <div className={styles.flipCardBack}>
                                             <p className={styles.cardTitle2}>
-                                                SELECT CURRENCY
+                                                $SI Vault
                                             </p>
                                         </div>
                                     </div>
@@ -302,7 +419,7 @@ function Home() {
                                         </div>
                                         <div className={styles.flipCardBack}>
                                             <p className={styles.cardTitle2}>
-                                                TRANSFER $SI FUNDS
+                                                TRANSFER FUNDS
                                             </p>
                                         </div>
                                     </div>
@@ -314,15 +431,15 @@ function Home() {
             )}
             {section !== '' && (
                 <button className="button" onClick={() => setSection('')}>
-                    BACK
+                    <span>BACK</span>
                 </button>
             )}
             {section === 'currency' && (
                 <div>
                     <select onChange={handleOnChangeCurrency}>
                         <option value="">Select Currency</option>
-                        <option value="zil">ZIL</option>
-                        <option value="zusdt">zUSDT</option>
+                        <option value="ZIL">ZIL</option>
+                        <option value="zUSDT">zUSDT</option>
                     </select>
                     {currency !== '' && (
                         <div style={{ marginTop: '10px', marginLeft: '15px' }}>
@@ -340,7 +457,10 @@ function Home() {
                                 placeholder="Type amount"
                                 autoFocus
                             />
-                            <button className={'button primary'}>
+                            <button 
+                                onClick={handleSubmitMint}
+                                className={'button primary'}
+                            >
                                 <p>Submit</p>
                             </button>
                         </div>
@@ -356,13 +476,13 @@ function Home() {
                             <div style={{ marginTop: '20%' }}>
                                 Balance: {balance} $SI
                             </div>
-                            <div style={{ display: 'flex', marginTop: '10%' }}>
+                            <div style={{ display: 'flex', marginTop: '10%'}}>
                                 <input
                                     name="address"
                                     type="text"
                                     style={{ marginRight: '3%' }}
                                     onChange={handleOnChange}
-                                    placeholder="Type address"
+                                    placeholder="Type the recipient's address"
                                     autoFocus
                                 />
                                 <button
@@ -385,7 +505,7 @@ function Home() {
                                         type="text"
                                         style={{ marginRight: '3%' }}
                                         onChange={handleOnChange}
-                                        placeholder="Type amount"
+                                        placeholder="Type the amount of $SI"
                                         autoFocus
                                     />
                                     <button

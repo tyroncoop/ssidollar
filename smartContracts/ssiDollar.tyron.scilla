@@ -1,4 +1,4 @@
-(* v0.12.0
+(* v0.12.1
 ssiDollar.tyron: Self-Sovereign Identity Dollar DApp, Fungible Decentralized Stablecoin <> Proxy smart contract
 Self-Sovereign Identity Protocol
 Copyright (C) Tyron Mapu Community Interest Company and its affiliates.
@@ -116,7 +116,7 @@ transition Mint(
   amount: Uint128
   )
   current_impl <- implementation;
-  accept; msg = let m = { _tag: "Mint"; _recipient: current_impl; _amount: zero;
+  accept; msg = let m = { _tag: "Mint"; _recipient: current_impl; _amount: _amount;
     addrName: addrName;
     originator: _sender;
     amount: amount
