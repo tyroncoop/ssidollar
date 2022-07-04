@@ -22,6 +22,7 @@ function Home() {
     const dashboardState = useStore($dashboardState)
     const [currency, setCurrency] = useState('')
     const [balance, setBalance] = useState(0)
+    const [balance$SI, setBalance$SI] = useState(0)
     const [loading, setLoading] = useState(false)
     const [section, setSection] = useState('')
     const [amount, setAmount] = useState('')
@@ -53,6 +54,7 @@ function Home() {
             }
         } else {
             setAdress('')
+            setAmount('')
             const addr = tyron.Address.default.verification(event.target.value)
             if (addr !== '') {
                 setAdress(addr)
@@ -97,10 +99,10 @@ function Home() {
                     if (balance_zilpay !== undefined) {
                         const _currency = tyron.Currency.default.tyron(id)
                         const finalBalance = balance_zilpay / _currency.decimals
-                        setBalance(Number(finalBalance.toFixed(2)))
+                        setBalance$SI(Number(finalBalance.toFixed(2)))
                     }
                 } catch (error) {
-                    setBalance(0)
+                    setBalance$SI(0)
                 }
             } else if (id !== 'zil') {
                 const init_addr = await tyron.SearchBarUtil.default.fetchAddr(
@@ -189,20 +191,74 @@ function Home() {
                 }
                 tx_params_.push(spender)
                 tx_params_.push(amount_)    
-                await zilpay
-                .call({
-                    contractAddress: "0x53934bdad86b8ba4df24cc6c5fe3ff35a6bd5fee",  // zUSDT proxy
-                    transition: 'IncreaseAllowance',
-                    params: tx_params_ as unknown as Record<string, unknown>[],
-                    amount: '0',
-                })
-                .then(async () => {
-                    setTimeout(async () => {
-                    await zilpay.call({
+                try {
+                    await zilpay
+                    .call({
+                        contractAddress: "0x53934bdad86b8ba4df24cc6c5fe3ff35a6bd5fee",  // zUSDT proxy
+                        transition: 'IncreaseAllowance',
+                        params: tx_params_ as unknown as Record<string, unknown>[],
+                        amount: '0',
+                    })
+                    .then(async () => {
+                        setTimeout(async () => {
+                        await zilpay.call({
+                            contractAddress: $SIAddr,
+                            transition: 'Mint',
+                            params: tx_params as unknown as Record<string, unknown>[],
+                            amount: '0',
+                        })
+                        .then(async (res) => {
+                            dispatch(setTxId(res.ID))
+                            dispatch(setTxStatusLoading('submitted'))
+                            tx = await tx.confirm(res.ID)
+                            if (tx.isConfirmed()) {
+                                setLoading(false)
+                                dispatch(setTxStatusLoading('confirmed'))
+                                setTimeout(() => {
+                                    window.open(
+                                        `https://devex.zilliqa.com/tx/${
+                                            res.ID
+                                        }?network=https%3A%2F%2F${
+                                            net === 'mainnet' ? '' : 'dev-'
+                                        }api.zilliqa.com`
+                                    )
+                                }, 1000)
+                            }
+                        })
+                        .catch((err) => {
+                            throw err
+                        })
+                    }, 6000)
+                        
+                    })
+                    .catch((err) => {
+                        throw err
+                    })
+                } catch(error) {
+                    setLoading(false)
+                    dispatch(setTxStatusLoading('rejected'))
+                    toast.error(String(error), {
+                        position: 'top-right',
+                        autoClose: 2000,
+                        hideProgressBar: false,
+                        closeOnClick: true,
+                        pauseOnHover: true,
+                        draggable: true,
+                        progress: undefined,
+                        theme: 'dark',
+                        toastId: 12,
+                    })
+                }
+                break;
+        
+            default:
+                try {
+                    await zilpay
+                    .call({
                         contractAddress: $SIAddr,
                         transition: 'Mint',
                         params: tx_params as unknown as Record<string, unknown>[],
-                        amount: '0',
+                        amount: amount,
                     })
                     .then(async (res) => {
                         dispatch(setTxId(res.ID))
@@ -220,54 +276,26 @@ function Home() {
                                     }api.zilliqa.com`
                                 )
                             }, 1000)
-                        } else if (tx.isRejected()) {
-                            setLoading(false)
-                            dispatch(setTxStatusLoading('failed'))
                         }
                     })
                     .catch((err) => {
                         throw err
                     })
-                }, 6000)
-                    
-                })
-                .catch((err) => {
-                    throw err
-                })
-                break;
-        
-            default:
-                await zilpay
-                .call({
-                    contractAddress: $SIAddr,
-                    transition: 'Mint',
-                    params: tx_params as unknown as Record<string, unknown>[],
-                    amount: amount,
-                })
-                .then(async (res) => {
-                    dispatch(setTxId(res.ID))
-                    dispatch(setTxStatusLoading('submitted'))
-                    tx = await tx.confirm(res.ID)
-                    if (tx.isConfirmed()) {
-                        setLoading(false)
-                        dispatch(setTxStatusLoading('confirmed'))
-                        setTimeout(() => {
-                            window.open(
-                                `https://devex.zilliqa.com/tx/${
-                                    res.ID
-                                }?network=https%3A%2F%2F${
-                                    net === 'mainnet' ? '' : 'dev-'
-                                }api.zilliqa.com`
-                            )
-                        }, 1000)
-                    } else if (tx.isRejected()) {
-                        setLoading(false)
-                        dispatch(setTxStatusLoading('failed'))
-                    }
-                })
-                .catch((err) => {
-                    throw err
-                })
+                } catch (error) {
+                    setLoading(false)
+                    dispatch(setTxStatusLoading('rejected'))
+                    toast.error(String(error), {
+                        position: 'top-right',
+                        autoClose: 2000,
+                        hideProgressBar: false,
+                        closeOnClick: true,
+                        pauseOnHover: true,
+                        draggable: true,
+                        progress: undefined,
+                        theme: 'dark',
+                        toastId: 12,
+                    })
+                }
                 break;
         }
     }
@@ -285,7 +313,8 @@ function Home() {
         resetState()
         updateModalTxMinimized(false)
         updateModalTx(true)
-        await zilpay
+        try {
+            await zilpay
             .call({
                 contractAddress: $SIAddr,
                 transition: 'Transfer',
@@ -308,14 +337,26 @@ function Home() {
                             }api.zilliqa.com`
                         )
                     }, 1000)
-                } else if (tx.isRejected()) {
-                    setLoading(false)
-                    dispatch(setTxStatusLoading('failed'))
                 }
             })
             .catch((err) => {
                 throw err
             })
+        } catch(error) {
+            setLoading(false)
+            dispatch(setTxStatusLoading('rejected'))
+            toast.error(String(error), {
+                position: 'top-right',
+                autoClose: 2000,
+                hideProgressBar: false,
+                closeOnClick: true,
+                pauseOnHover: true,
+                draggable: true,
+                progress: undefined,
+                theme: 'dark',
+                toastId: 12,
+            })
+        }
     }
 
     const resetState = () => {
@@ -358,6 +399,7 @@ function Home() {
                                 <div
                                     onClick={() => {
                                         if (dashboardState === 'connected') {
+                                            fetchBalance('$si')
                                             setSection('currency')
                                         } else {
                                             toast.error('Connect ZilPay', {
@@ -430,21 +472,30 @@ function Home() {
                 </div>
             )}
             {section !== '' && (
-                <button className="button" onClick={() => setSection('')}>
+                <button className="button" onClick={() => {
+                    setSection('')
+                    setCurrency('')
+                }}>
                     <span>BACK</span>
                 </button>
             )}
             {section === 'currency' && (
                 <div>
-                    <select onChange={handleOnChangeCurrency}>
+                {loading ? (
+                    spinner
+                ) : (
+                <div>
+                    <select value={currency} onChange={handleOnChangeCurrency}>
                         <option value="">Select Currency</option>
                         <option value="ZIL">ZIL</option>
                         <option value="zUSDT">zUSDT</option>
                     </select>
+                    <div style={{ marginTop: '20px', marginLeft: '15px' }}>
+                        $SI Balance:{' '}{balance$SI} $SI
+                    </div>
                     {currency !== '' && (
-                        <div style={{ marginTop: '10px', marginLeft: '15px' }}>
-                            Balance:{' '}
-                            {loading ? spinner : `${balance} ${currency}`}
+                        <div style={{ marginTop: '5px', marginLeft: '15px' }}>
+                            {currency} Balance:{' '}{balance} {currency}
                         </div>
                     )}
                     {currency !== '' && (
@@ -452,12 +503,13 @@ function Home() {
                             <input
                                 name="amount"
                                 type="text"
-                                style={{ marginRight: '3%' }}
+                                className={styles.inputBox}
                                 onChange={handleOnChange}
-                                placeholder="Type amount"
+                                placeholder={`Type amount of ${currency}`}
                                 autoFocus
                             />
                             <button 
+                                style={{ marginLeft: '3%' }}
                                 onClick={handleSubmitMint}
                                 className={'button primary'}
                             >
@@ -466,6 +518,8 @@ function Home() {
                         </div>
                     )}
                 </div>
+                )}
+            </div>
             )}
             {section === 'transfer' && (
                 <div>
@@ -474,18 +528,19 @@ function Home() {
                     ) : (
                         <>
                             <div style={{ marginTop: '20%' }}>
-                                Balance: {balance} $SI
+                                Balance: {balance$SI} $SI
                             </div>
-                            <div style={{ display: 'flex', marginTop: '10%'}}>
+                            <div style={{ display: 'flex', marginTop: '10%', width: '100%'}}>
                                 <input
                                     name="address"
                                     type="text"
-                                    style={{ marginRight: '3%' }}
+                                    className={styles.inputBox}
                                     onChange={handleOnChange}
                                     placeholder="Type the recipient's address"
                                     autoFocus
                                 />
                                 <button
+                                    style={{ marginLeft: '3%' }}
                                     className={`button ${
                                         address !== '' ? 'secondary' : 'primary'
                                     }`}
@@ -503,12 +558,13 @@ function Home() {
                                     <input
                                         name="amount"
                                         type="text"
-                                        style={{ marginRight: '3%' }}
+                                        className={styles.inputBox}
                                         onChange={handleOnChange}
                                         placeholder="Type the amount of $SI"
                                         autoFocus
                                     />
                                     <button
+                                        style={{ marginLeft: '3%' }}
                                         className={`button ${
                                             amount !== ''
                                                 ? 'secondary'
