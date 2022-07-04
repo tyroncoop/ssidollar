@@ -1,4 +1,6 @@
 export enum ModalActionTypes {
+    SetTxStatusLoading,
+    SetTxId,
     updateLoginAddress,
     updateLoginZilpay,
 }
@@ -6,6 +8,20 @@ export enum ModalActionTypes {
 export interface ModalAction {
     type: ModalActionTypes
     payload?: any
+}
+
+export function setTxStatusLoading(data: any): ModalAction {
+    return {
+        type: ModalActionTypes.SetTxStatusLoading,
+        payload: data,
+    }
+}
+
+export function setTxId(data: any): ModalAction {
+    return {
+        type: ModalActionTypes.SetTxId,
+        payload: data,
+    }
 }
 
 export function updateLoginInfoAddress(data: String): ModalAction {
