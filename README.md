@@ -4,9 +4,9 @@ Self-Sovereign Identity Dollar
 
 The SSI Dollar is a Decentralized Finance (DeFi) application made of two smart contracts:
 
-- [Proxy smart contract](./smartContracts/ssiDollar.tyron.scilla)
+-   [Proxy smart contract](./smartContracts/ssiDollar.tyron.scilla)
 
-- [Implementation smart contract](./smartContracts/ssiDollarImpl.tyron.scilla)
+-   [Implementation smart contract](./smartContracts/ssiDollarImpl.tyron.scilla)
 
 ## MISSION VISION
 
@@ -41,13 +41,13 @@ Self-Sovereign Identity Dollars can be created automatically with the SSI Dollar
 
 To extend the functionality of this stablecoin, we can implement the following features in the future:
 
-- Partial repayment of the loan
+-   Partial repayment of the loan
 
-- Exchange from XSGD to $SI
+-   Exchange from XSGD to $SI
 
-- Transmutation of TYRON to $SI (burn TYRON to create $SI and vice-versa)
+-   Transmutation of TYRON to $SI (burn TYRON to create $SI and vice-versa)
 
-- Liquidation by third parties: if the ZILUSD exchange rate drops below a threshold, meaning that the value in ZIL is, e.g. 150% of the value of the $SI loan, we could include third parties to act as liquidators. They will have to pay back the amount of $SI and will be able to take the ZIL balance, making a profit out of it.
+-   Liquidation by third parties: if the ZILUSD exchange rate drops below a threshold, meaning that the value in ZIL is, e.g. 150% of the value of the $SI loan, we could include third parties to act as liquidators. They will have to pay back the amount of $SI and will be able to take the ZIL balance, making a profit out of it.
 
 ## 🚀Running the Project
 
