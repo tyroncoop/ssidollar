@@ -23,11 +23,13 @@ function Home() {
     const [currency, setCurrency] = useState('')
     const [balance, setBalance] = useState(0)
     const [balance$SI, setBalance$SI] = useState(0)
+    const [loan, setLoan] = useState({ zil: 0, $si: 0 })
     const [loading, setLoading] = useState(false)
     const [section, setSection] = useState('')
     const [amount, setAmount] = useState('')
     const [address, setAdress] = useState('')
-    const $SIAddr = '0xc23cA8BE034b27B0d5d80CB08CE0EF10e336865d' // @todo
+    const $SIproxy = '0xc23cA8BE034b27B0d5d80CB08CE0EF10e336865d' // @todo
+    const $SIimpl = '0xf930df14b7ce8c133c40f53f5db39cae4a27fac7' // @todo
 
     const handleOnChangeCurrency = (event: { target: { value: any } }) => {
         const value = event.target.value
@@ -36,9 +38,39 @@ function Home() {
     }
 
     const handleOnChange = (event: { target: { value: any; name: any } }) => {
+        const input = event.target.value
+
         if (event.target.name === 'amount') {
             if (isNaN(event.target.value)) {
                 toast.error('Please input a valid number', {
+                    position: 'top-right',
+                    autoClose: 2000,
+                    hideProgressBar: false,
+                    closeOnClick: true,
+                    pauseOnHover: true,
+                    draggable: true,
+                    progress: undefined,
+                    theme: 'dark',
+                    toastId: 1,
+                })
+            } else {
+                setAmount(event.target.value)
+            }
+        } else if (event.target.name === 'amountUnlock') {
+            if (isNaN(input)) {
+                toast.error('Please input a valid number', {
+                    position: 'top-right',
+                    autoClose: 2000,
+                    hideProgressBar: false,
+                    closeOnClick: true,
+                    pauseOnHover: true,
+                    draggable: true,
+                    progress: undefined,
+                    theme: 'dark',
+                    toastId: 1,
+                })
+            } else if (input < loan.$si) {
+                toast.error('You must return the total loan amount', {
                     position: 'top-right',
                     autoClose: 2000,
                     hideProgressBar: false,
@@ -75,6 +107,8 @@ function Home() {
     }
 
     const fetchBalance = async (id: string) => {
+        setBalance(0)
+        setBalance$SI(0)
         setLoading(true)
         let token_addr: string
         let network = tyron.DidScheme.NetworkNamespace.Mainnet
@@ -86,7 +120,7 @@ function Home() {
             if (id === '$si') {
                 const balances =
                     await init.API.blockchain.getSmartContractSubState(
-                        $SIAddr,
+                        $SIproxy,
                         'balances'
                     )
                 const balances_ = await tyron.SmartUtil.default.intoMap(
@@ -187,7 +221,7 @@ function Home() {
                 const spender = {
                     vname: 'spender',
                     type: 'ByStr20',
-                    value: '0xf930df14b7ce8c133c40f53f5db39cae4a27fac7', // @todo the $SI impl
+                    value: $SIimpl,
                 }
                 tx_params_.push(spender)
                 tx_params_.push(amount_)
@@ -207,7 +241,7 @@ function Home() {
                             setTimeout(async () => {
                                 await zilpay
                                     .call({
-                                        contractAddress: $SIAddr,
+                                        contractAddress: $SIproxy,
                                         transition: 'Mint',
                                         params: tx_params as unknown as Record<
                                             string,
@@ -268,7 +302,7 @@ function Home() {
                 try {
                     await zilpay
                         .call({
-                            contractAddress: $SIAddr,
+                            contractAddress: $SIproxy,
                             transition: 'Mint',
                             params: tx_params as unknown as Record<
                                 string,
@@ -332,7 +366,7 @@ function Home() {
         try {
             await zilpay
                 .call({
-                    contractAddress: $SIAddr,
+                    contractAddress: $SIproxy,
                     transition: 'Transfer',
                     params: tx_params as unknown as Record<string, unknown>[],
                     amount: '0',
@@ -372,6 +406,135 @@ function Home() {
                 theme: 'dark',
                 toastId: 12,
             })
+        }
+    }
+
+    const fetchLoan = async () => {
+        setLoan({
+            zil: 0,
+            $si: 0,
+        })
+        setLoading(true)
+        let network = tyron.DidScheme.NetworkNamespace.Mainnet
+        if (net === 'testnet') {
+            network = tyron.DidScheme.NetworkNamespace.Testnet
+        }
+        const init = new tyron.ZilliqaInit.default(network)
+        try {
+            const get_accounts =
+                await init.API.blockchain.getSmartContractSubState(
+                    $SIimpl,
+                    'accounts'
+                )
+            const accounts = await tyron.SmartUtil.default.intoMap(
+                get_accounts.result.accounts
+            )
+            const account_zilpay = accounts.get(
+                loginInfo.zilAddr.base16.toLowerCase()
+            )
+            console.log(account_zilpay)
+            if (account_zilpay !== undefined) {
+                let account_zil = account_zilpay.arguments[0]
+                let account_$si = account_zilpay.arguments[1]
+                console.log(account_$si)
+
+                account_zil = account_zil / 1e12
+
+                const _currency = tyron.Currency.default.tyron('$si')
+                account_$si = account_$si / _currency.decimals
+
+                console.log(account_$si)
+
+                setLoan({
+                    zil: Number(account_zil.toFixed(2)),
+                    $si: Number(account_$si.toFixed(2)),
+                })
+            }
+        } catch (error) {
+            setLoan({
+                zil: 0,
+                $si: 0,
+            })
+        }
+        setLoading(false)
+    }
+
+    const handleSubmitBurn = async () => {
+        setLoading(true)
+        const zilpay = new ZilPayBase()
+        const tx_params: any[] = []
+        const addrName = {
+            vname: 'addrName',
+            type: 'String',
+            value: 'zil', //currency.toLowerCase(),
+        }
+        tx_params.push(addrName)
+        const amount_ = {
+            vname: 'amount',
+            type: 'Uint128',
+            value: String(Number(amount) * 1e12),
+        }
+        tx_params.push(amount_)
+
+        let tx = await tyron.Init.default.transaction(net)
+
+        dispatch(setTxStatusLoading('true'))
+        resetState()
+        updateModalTxMinimized(false)
+        updateModalTx(true)
+
+        switch (currency) {
+            case 'zUSDT':
+                break
+            default:
+                try {
+                    await zilpay
+                        .call({
+                            contractAddress: $SIproxy,
+                            transition: 'Burn',
+                            params: tx_params as unknown as Record<
+                                string,
+                                unknown
+                            >[],
+                            amount: '0',
+                        })
+                        .then(async (res) => {
+                            dispatch(setTxId(res.ID))
+                            dispatch(setTxStatusLoading('submitted'))
+                            tx = await tx.confirm(res.ID)
+                            if (tx.isConfirmed()) {
+                                setLoading(false)
+                                dispatch(setTxStatusLoading('confirmed'))
+                                setTimeout(() => {
+                                    window.open(
+                                        `https://devex.zilliqa.com/tx/${
+                                            res.ID
+                                        }?network=https%3A%2F%2F${
+                                            net === 'mainnet' ? '' : 'dev-'
+                                        }api.zilliqa.com`
+                                    )
+                                }, 1000)
+                            }
+                        })
+                        .catch((err) => {
+                            throw err
+                        })
+                } catch (error) {
+                    setLoading(false)
+                    dispatch(setTxStatusLoading('rejected'))
+                    toast.error(String(error), {
+                        position: 'top-right',
+                        autoClose: 2000,
+                        hideProgressBar: false,
+                        closeOnClick: true,
+                        pauseOnHover: true,
+                        draggable: true,
+                        progress: undefined,
+                        theme: 'dark',
+                        toastId: 12,
+                    })
+                }
+                break
         }
     }
 
@@ -506,6 +669,7 @@ function Home() {
                                         if (dashboardState === 'connected') {
                                             fetchBalance('$si')
                                             fetchBalance('zil')
+                                            fetchLoan()
                                             setSection('unlock')
                                         } else {
                                             toast.error('Connect ZilPay', {
@@ -531,7 +695,7 @@ function Home() {
                                         </div>
                                         <div className={styles.flipCardBack}>
                                             <p className={styles.cardTitle2}>
-                                                UNLOCK ZIL
+                                                return $SI loan
                                             </p>
                                         </div>
                                     </div>
@@ -707,6 +871,12 @@ function Home() {
                             <div style={{ marginTop: '5%' }}>
                                 ZIL Balance: {balance} ZIL
                             </div>
+                            <div style={{ marginTop: '5%' }}>
+                                $SI Loan: {loan.$si} $SI
+                            </div>
+                            <div style={{ marginTop: '5%' }}>
+                                ZIL Locked: {loan.zil} ZIL
+                            </div>
                             <div
                                 style={{
                                     display: 'flex',
@@ -714,15 +884,16 @@ function Home() {
                                 }}
                             >
                                 <input
-                                    name="amount"
+                                    name="amountUnlock"
                                     type="text"
                                     className={styles.inputBox}
                                     onChange={handleOnChange}
-                                    placeholder="Type the amount of $SI"
+                                    placeholder="Type the amount of $SI to return"
                                     autoFocus
                                 />
                                 <button
                                     style={{ marginLeft: '3%' }}
+                                    onClick={handleSubmitBurn}
                                     className={`button ${
                                         amount !== '' ? 'secondary' : 'primary'
                                     }`}
