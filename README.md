@@ -1,8 +1,10 @@
-# SSI Dollar
+# Self-Sovereign Identity Dollar ($SI)
 
-Self-Sovereign Identity Dollar
+The Self-Sovereign Identity Dollar is a decentralized stablecoin. You can get an $SI loan by locking your ZIL (over-collateralization) while keeping the ownership of both cryptocurrencies. You can also swap from zUSDT to $SI & more!
 
-The SSI Dollar is a Decentralized Finance (DeFi) application made of two smart contracts:
+[Get $SI YouTube Demo](https://youtu.be/juyqwMEoVwE)
+
+The SSI Dollar DApp is a Decentralized Finance (DeFi) application made of two smart contracts:
 
 -   [Proxy smart contract](./smartContracts/ssiDollar.tyron.scilla)
 
